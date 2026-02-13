@@ -1,1 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Activity Tracker</title>
+    <style>
+        :root { --bg: #ffffff; --txt: #1a1a1a; --brd: #e0e0e0; --acc: #000000; --hvr: #f5f5f5; --rad: 8px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg); color: var(--txt); padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 1100px; }
+        header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
+        h1 { font-weight: 700; font-size: 1.5rem; letter-spacing: -0.03em; }
+        .controls-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
+        .selectors, .actions { display: flex; gap: 8px; }
+        select, button, input { font-family: inherit; font-size: 0.9rem; padding: 8px 14px; border: 1px solid var(--brd); border-radius: var(--rad); background: white; outline: none; }
+        button { cursor: pointer; background: var(--acc); color: white; border: none; transition: opacity 0.2s; }
+        button:hover { opacity: 0.8; }
+        button.danger { background: #fff; color: #d32f2f; border: 1px solid #ffcdd2; }
+        .table-container { overflow-x: auto; border: 1px solid var(--brd); border-radius: var(--rad); background: white; margin-bottom: 30px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { border: 1px solid var(--brd); text-align: center; min-width: 35px; height: 42px; }
+        th { background: var(--hvr); color: #666; font-weight: 500; }
+        .name-cell { text-align: left; padding: 0 15px; min-width: 200px; position: sticky; left: 0; background: white; z-index: 5; display: flex; align-items: center; justify-content: space-between; border-right: 2px solid var(--brd); }
+        .delete-btn { color: #ccc; cursor: pointer; font-size: 1.2rem; margin-left: 10px; }
+        .delete-btn:hover { color: #d32f2f; }
+        .cell-toggle { cursor: pointer; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; user-select: none; }
+        .cell-toggle.done::after { content: "✔"; font-weight: bold; }
+        .cell-toggle:not(.done)::after { content: "·"; color: #ddd; }
+        .cell-toggle:hover { background: var(--hvr); }
+        .graph-section { background: white; padding: 24px; border: 1px solid var(--brd); border-radius: var(--rad); margin-top: 20px; width: 100%; }
+        .graph-title { font-weight: 600; margin-bottom: 20px; font-size: 1rem; }
+        .svg-container { width: 100%; height: 150px; }
+        polyline { fill: none; stroke: var(--acc); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+        .axis { stroke: var(--brd); stroke-width: 1; }
+        .graph-labels { display: flex; justify-content: space-between; margin-top: 10px; font-size: 0.75rem; color: #999; }
+        .empty-state { padding: 50px; text-align: center; color: #999; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div><h1>Monthly Activity Tracker</h1><p id="statsText">0 activities</p></div>
+            <div id="percentageText" style="font-size: 2.2rem; font-weight: 800;">0%</div>
+        </header>
+        <div class="controls-row">
+            <div class="selectors"><select id="monthSelect"></select><select id="yearSelect"></select></div>
+            <div class="actions"><input type="text" id="activityInput" placeholder="New activity..."><button onclick="addActivity()">Add</button><button class="danger" onclick="clearMonth()">Reset</button></div>
+        </div>
+        <div class="table-container">
+            <table id="trackerTable"><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+            <div id="emptyMsg" class="empty-state">No activities yet. Add one to start tracking.</div>
+        </div>
+        <div class="graph-section">
+            <div class="graph-title">Activity Trend Line</div>
+            <div class="svg-container">
+                <svg width="100%" height="100%" viewBox="0 0 1000 150" preserveAspectRatio="none">
+                    <line x1="0" y1="140" x2="1000" y2="140" class="axis" /><polyline id="trendLine" points="" />
+                </svg>
+            </div>
+            <div class="graph-labels"><span>Day 1</span><span id="midLabel"></span><span id="endLabel"></span></div>
+        </div>
+    </div>
+    <script>
+        let curY = new Date().getFullYear(), curM = new Date().getMonth(), acts = [], data = {};
+        const ms = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        function init() {
+            const mS = document.getElementById('monthSelect'), yS = document.getElementById('yearSelect');
+            ms.forEach((m, i) => mS.add(new Option(m, i, i===curM, i===curM)));
+            for(let y=curY-2; y<=curY+5; y++) yS.add(new Option(y, y, y===curY, y===curY));
+            mS.onchange = e => { curM = parseInt(e.target.value); refresh(); };
+            yS.onchange = e => { curY = parseInt(e.target.value); refresh(); };
+            refresh();
+        }
+        function refresh() { load(); renderTable(); updateStats(); renderGraph(); }
+        function load() {
+            let s = localStorage.getItem(`mat-${curY}-${curM}`);
+            if(s) { let p = JSON.parse(s); acts = p.activities || []; data = p.data || {}; }
+            else { acts = []; data = {}; }
+        }
+        function save() { localStorage.setItem(`mat-${curY}-${curM}`, JSON.stringify({ activities: acts, data })); }
+        function renderTable() {
+            const days = new Date(curY, curM + 1, 0).getDate();
+            const h = document.getElementById('tableHead'), b = document.getElementById('tableBody');
+            document.getElementById('emptyMsg').style.display = acts.length ? 'none' : 'block';
+            let hR = `<tr><th class="name-cell">Activity</th>`;
+            for(let d=1; d<=days; d++) hR += `<th>${d}</th>`;
+            h.innerHTML = hR + `</tr>`;
+            b.innerHTML = '';
+            acts.forEach((act, idx) => {
+                let tr = document.createElement('tr');
+                tr.innerHTML = `<td class="name-cell"><span>${act}</span><span class="delete-btn" onclick="removeAct(${idx})">×</span></td>`;
+                for(let d=1; d<=days; d++) {
+                    let td = document.createElement('td');
+                    let dv = document.createElement('div');
+                    dv.className = `cell-toggle ${data[act]?.[d] ? 'done' : ''}`;
+                    dv.onclick = () => { if(!data[act]) data[act] = {}; data[act][d] = !data[act][d]; save(); refresh(); };
+                    td.appendChild(dv); tr.appendChild(td);
+                }
+                b.appendChild(tr);
+            });
+            document.getElementById('midLabel').innerText = `Day ${Math.floor(days/2)}`;
+            document.getElementById('endLabel').innerText = `Day ${days}`;
+        }
+        function addActivity() {
+            let i = document.getElementById('activityInput'), v = i.value.trim();
+            if(v && !acts.includes(v)) { acts.push(v); i.value = ''; save(); refresh(); }
+        }
+        function removeAct(idx) { delete data[acts[idx]]; acts.splice(idx, 1); save(); refresh(); }
+        function clearMonth() { if(confirm("Reset month?")) { localStorage.removeItem(`mat-${curY}-${curM}`); refresh(); } }
+        function updateStats() {
+            const days = new Date(curY, curM + 1, 0).getDate();
+            let total = acts.length * days, done = 0;
+            Object.values(data).forEach(o => Object.values(o).forEach(v => { if(v) done++; }));
+            document.getElementById('percentageText').innerText = (total > 0 ? Math.round((done/total)*100) : 0) + "%";
+            document.getElementById('statsText').innerText = `${acts.length} activities · ${done} completed`;
+        }
+        function renderGraph() {
+            const days = new Date(curY, curM + 1, 0).getDate();
+            const poly = document.getElementById('trendLine');
+            let pts = "", step = 1000 / (days - 1);
+            for(let d=1; d<=days; d++) {
+                let c = 0; acts.forEach(a => { if(data[a]?.[d]) c++; });
+                let y = 140 - (acts.length > 0 ? (c / acts.length) * 130 : 0);
+                pts += `${(d-1) * step},${y} `;
+            }
+            poly.setAttribute('points', pts.trim());
+        }
+        init();
+    </script>
+</body>
+</html>
 
